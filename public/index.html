@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>设备轨迹 - 12h 回溯</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+
+    /* ---- 地图容器 ---- */
+    #map {
+      width: 100%; height: 100%;
+      background: #e8edf0;
+    }
+
+    /* ---- 顶部状态栏 ---- */
+    #status-bar {
+      position: fixed; top: 12px; left: 12px; right: 12px; z-index: 100;
+      background: rgba(255,255,255,0.94); backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 10px; padding: 10px 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+      font-size: 13px; color: #333;
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap;
+      transition: opacity 0.3s;
+    }
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: #ccc;
+    }
+    #status-dot.online  { background: #34c759; }
+    #status-dot.offline { background: #ff9500; }
+    #status-text { flex: 1; min-width: 0; }
+    #point-count { font-weight: 600; color: #007aff; white-space: nowrap; }
+    #gps-count { color: #007aff; white-space: nowrap; }
+    #bs-count  { color: #ff3b30; white-space: nowrap; }
+
+    /* ---- 底部控制栏 ---- */
+    #controls {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 100;
+      display: flex; gap: 6px;
+      background: rgba(255,255,255,0.94); backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 12px; padding: 6px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+    }
+    #controls button {
+      min-width: 48px; height: 38px; padding: 0 16px;
+      border: none; border-radius: 8px; cursor: pointer;
+      font-size: 14px; font-weight: 500;
+      background: transparent; color: #555;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    #controls button:hover   { background: #f0f0f5; }
+    #controls button:active  { transform: scale(0.96); }
+    #controls button.active  {
+      background: #007aff; color: #fff;
+      box-shadow: 0 2px 8px rgba(0,122,255,0.3);
+    }
+
+    /* ---- 加载指示器 ---- */
+    #loading {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      z-index: 200; pointer-events: none;
+      background: rgba(0,0,0,0.7); color: #fff;
+      padding: 8px 20px; border-radius: 20px;
+      font-size: 13px; display: none;
+    }
+    #loading.show { display: block; }
+
+    /* ---- 空数据提示 ---- */
+    #empty-hint {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      z-index: 90; pointer-events: none;
+      background: rgba(255,255,255,0.92); color: #888;
+      padding: 12px 22px; border-radius: 10px;
+      font-size: 14px; display: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    #empty-hint.show { display: block; }
+
+    /* ---- 信息窗体样式 ---- */
+    .amap-info-content {
+      font-size: 12px; line-height: 1.6;
+      padding: 2px 0;
+    }
+    .amap-info-content b {
+      color: #007aff;
+    }
+
+    /* ---- 移动端适配 ---- */
+    @media (max-width: 480px) {
+      #status-bar { font-size: 12px; padding: 8px 10px; }
+      #controls button { min-width: 40px; padding: 0 12px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== 高德地图容器 ===== -->
+  <div id="map"></div>
+
+  <!-- ===== 加载提示 ===== -->
+  <div id="loading">正在加载…</div>
+
+  <!-- ===== 空数据提示 ===== -->
+  <div id="empty-hint"></div>
+
+  <!-- ===== 状态栏 ===== -->
+  <div id="status-bar">
+    <span id="status-dot"></span>
+    <span id="status-text">初始化中…</span>
+    <span id="gps-count"></span>
+    <span id="bs-count"></span>
+    <span id="point-count"></span>
+  </div>
+
+  <!-- ===== 时段选择器 ===== -->
+  <div id="controls">
+    <button data-hours="1">1小时</button>
+    <button data-hours="3">3小时</button>
+    <button data-hours="6">6小时</button>
+    <button data-hours="9">9小时</button>
+    <button data-hours="12">12小时</button>
+  </div>
+
+  <!-- ===== 高德地图安全密钥 — 必须在 JS API 加载前声明 ===== -->
+  <script>
+    window._AMapSecurityConfig = {
+      securityJsCode: '9e9bbc23d0614b93975a73c7fbd0f7dd',
+    };
+  </script>
+
+  <!-- ===== 高德 JS API v2.0 ===== -->
+  <script src="https://webapi.amap.com/maps?v=2.0&key=28b406b0b6cbc476b6e4612f84c6d148"></script>
+
+  <!-- ===== 应用逻辑 ===== -->
+  <script>
+  (function () {
+    'use strict';
+
+    // ========== DOM 引用 ==========
+    const mapEl        = document.getElementById('map');
+    const statusDot    = document.getElementById('status-dot');
+    const statusText   = document.getElementById('status-text');
+    const pointCountEl = document.getElementById('point-count');
+    const loadingEl    = document.getElementById('loading');
+    const emptyHintEl  = document.getElementById('empty-hint');
+    const buttons      = document.querySelectorAll('#controls button');
+
+    // ========== 状态 ==========
+    let map            = null;    // AMap 实例
+    let markers        = [];      // 当前标记点
+    let polyline       = null;    // 当前轨迹线
+    let mapReady       = false;   // 地图是否已初始化
+    let currentHours   = 1;       // 当前选中的时段
+    let fetchTimer     = null;    // 防止重复请求
+    let autoTimer      = null;    // 自动刷新定时器
+    let lastDataHash   = '';      // 上次数据指纹，避免无变化时重复渲染
+
+    // ========== 轮询间隔（30 秒自动刷新） ==========
+    const POLL_INTERVAL = 30000;
+
+    // ========== 时段标签 ==========
+    const HOUR_LABELS = { 1: '1 小时', 3: '3 小时', 6: '6 小时', 9: '9 小时', 12: '12 小时' };
+
+    // ========== 工具函数 ==========
+    function showLoading()  { loadingEl.classList.add('show'); }
+    function hideLoading()  { loadingEl.classList.remove('show'); }
+    function showEmpty(msg) { emptyHintEl.textContent = msg; emptyHintEl.classList.add('show'); }
+    function hideEmpty()    { emptyHintEl.classList.remove('show'); }
+
+    function formatTime(iso) {
+      if (!iso) return '--';
+      const d = new Date(iso);
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    function timeAgo(iso) {
+      if (!iso) return '未知';
+      const diff = Date.now() - new Date(iso).getTime();
+      const sec  = Math.floor(diff / 1000);
+      if (sec < 60)   return `${sec} 秒前`;
+      if (sec < 3600) return `${Math.floor(sec/60)} 分钟前`;
+      if (sec < 86400) return `${Math.floor(sec/3600)} 小时前`;
+      return `${Math.floor(sec/86400)} 天前`;
+    }
+
+    // ========== 初始化地图 ==========
+    function initMap() {
+      return new Promise((resolve, reject) => {
+        if (typeof AMap === 'undefined') {
+          reject(new Error('高德地图 SDK 加载失败，请检查网络连接'));
+          return;
+        }
+
+        map = new AMap.Map('map', {
+          zoom: 15,
+          center: [116.397428, 39.90923], // 默认北京中心（首次加载无数据时）
+          resizeEnable: true,
+          mapStyle: 'amap://styles/light',
+        });
+
+        // 等待地图渲染完成
+        map.on('complete', () => {
+          console.log('[Map] 地图初始化完成');
+          mapReady = true;
+          resolve();
+        });
+      });
+    }
+
+    // ========== 清除地图上的所有覆盖物 ==========
+    function clearOverlays() {
+      if (map) {
+        map.clearMap();
+      }
+      markers = [];
+      polyline = null;
+    }
+
+    // ========== 在地图上绘制点位与轨迹 ==========
+    function renderTrack(data) {
+      if (!mapReady || !map) {
+        console.warn('[Map] 地图尚未就绪');
+        return;
+      }
+
+      clearOverlays();
+
+      if (!data || !data.length) {
+        // 保持当前视野，仅显示空提示
+        return;
+      }
+
+      const positions = data.map(p => [p.lng, p.lat]);
+
+      // --- 绘制轨迹折线 ---
+      polyline = new AMap.Polyline({
+        path: positions,
+        strokeColor: '#007aff',
+        strokeWeight: 3,
+        strokeOpacity: 0.7,
+        lineJoin: 'round',
+        lineCap: 'round',
+        showDir: true,              // 显示方向箭头
+        dirColor: '#fff',
+      });
+      map.add(polyline);
+
+      // --- 绘制标记点 ---
+      data.forEach((p, i) => {
+        const isLast = (i === data.length - 1);
+        const isGps  = p.type === 'gps';          // GPS=蓝点, 基站=红点
+        const color  = isGps ? '#007aff' : '#ff3b30';
+        const label  = isGps ? 'GPS' : '基站';
+        const size   = isLast ? 22 : 14;
+        const content = isLast ? '' : String(i + 1);
+
+        // 使用自定义 Marker（圆点 + 序号）
+        const markerEl = document.createElement('div');
+        markerEl.style.cssText = `
+          width:${size}px; height:${size}px; border-radius:50%;
+          background:${color}; border:2px solid #fff;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+          color:#fff; font-size:10px; font-weight:700;
+          display:flex; align-items:center; justify-content:center;
+          cursor:pointer;
+        `;
+        markerEl.textContent = content;
+
+        const marker = new AMap.Marker({
+          position: [p.lng, p.lat],
+          content: markerEl,
+          offset: new AMap.Pixel(-size/2, -size/2),
+          zIndex: isLast ? 200 : 100,
+        });
+
+        // 点击显示详情
+        marker.on('click', () => {
+          const info = new AMap.InfoWindow({
+            content: `
+              <div class="amap-info-content">
+                <b>点位 #${i + 1}</b>${isLast ? '（最新）' : ''}<br>
+                类型：${label}<br>
+                经度：${p.lng.toFixed(6)}<br>
+                纬度：${p.lat.toFixed(6)}<br>
+                时间：${formatTime(p.ts)}
+              </div>
+            `,
+            offset: new AMap.Pixel(0, -size - 8),
+          });
+          info.open(map, [p.lng, p.lat]);
+        });
+
+        map.add(marker);
+        markers.push(marker);
+      });
+
+      // --- 自动适配视野 ---
+      map.setFitView(null, false, [60, 60, 80, 120]);
+
+      // --- 记录数据指纹 ---
+      lastDataHash = `${data.length}|${data.length > 0 ? data[data.length - 1].ts : ''}`;
+    }
+
+    // ========== 更新状态栏 ==========
+    function updateStatus(data, meta) {
+      const { count, lastActive, offline, timeRange } = meta || {};
+
+      // 在线状态
+      if (offline) {
+        statusDot.className = 'offline';
+        statusText.textContent = lastActive
+          ? `设备离线 · 最后上报 ${timeAgo(lastActive)}`
+          : '设备离线 · 无上报记录';
+      } else if (count > 0) {
+        statusDot.className = 'online';
+        statusText.textContent = lastActive
+          ? `设备在线 · 最后上报 ${timeAgo(lastActive)}`
+          : '设备在线';
+      } else {
+        statusDot.className = 'offline';
+        statusText.textContent = '暂无轨迹数据';
+      }
+
+      // 按类型统计
+      const gpsCount = data ? data.filter(p => p.type === 'gps').length : 0;
+      const bsCount  = data ? data.filter(p => p.type === 'base_station').length : 0;
+      document.getElementById('gps-count').textContent = gpsCount > 0 ? `🔵 GPS×${gpsCount}` : '';
+      document.getElementById('bs-count').textContent  = bsCount > 0 ? `🔴 基站×${bsCount}` : '';
+
+      // 总点位数量
+      pointCountEl.textContent = count > 0 ? `${count} 个点位` : '';
+    }
+
+    // ========== 设置激活的时段按钮 ==========
+    function setActiveButton(hours) {
+      buttons.forEach(btn => {
+        const h = parseInt(btn.dataset.hours, 10);
+        btn.classList.toggle('active', h === hours);
+      });
+    }
+
+    // ========== 加载轨迹数据 ==========
+    async function fetchTrack(hours) {
+      // 防抖
+      if (fetchTimer) clearTimeout(fetchTimer);
+
+      return new Promise((resolve) => {
+        fetchTimer = setTimeout(async () => {
+          try {
+            showLoading();
+            hideEmpty();
+
+            const url = `/api/query?hours=${hours}`;
+            console.log(`[Fetch] 请求: ${url}`);
+
+            const resp = await fetch(url);
+            const json = await resp.json();
+
+            if (!json.success) {
+              console.error('[Fetch] 服务端错误:', json.error);
+              showEmpty(`查询失败：${json.error || '未知错误'}`);
+              resolve(null);
+              return;
+            }
+
+            resolve(json);
+          } catch (err) {
+            console.error('[Fetch] 网络错误:', err.message);
+            showEmpty('网络请求失败，请检查连接后重试');
+            resolve(null);
+          } finally {
+            hideLoading();
+          }
+        }, 200); // 200ms 防抖
+      });
+    }
+
+    // ========== 切换时段 ==========
+    async function switchHours(hours) {
+      if (hours === currentHours) return; // 未变化则跳过
+
+      currentHours = hours;
+      setActiveButton(hours);
+
+      console.log(`[App] 切换到 ${HOUR_LABELS[hours]} 时段`);
+
+      const result = await fetchTrack(hours);
+      if (!result) return;
+
+      const { data, count, lastActive, offline, timeRange } = result;
+
+      // 渲染轨迹
+      if (data && data.length > 0) {
+        renderTrack(data);
+        showEmpty(''); // 隐藏空提示
+      } else {
+        clearOverlays();
+        if (lastActive) {
+          showEmpty(`${HOUR_LABELS[hours]}内无轨迹数据\n设备最后上报：${formatTime(lastActive)}`);
+        } else {
+          showEmpty(`${HOUR_LABELS[hours]}内无轨迹数据\n设备暂无上报记录`);
+        }
+      }
+
+      // 更新状态
+      updateStatus(data, { count, lastActive, offline, timeRange });
+    }
+
+    // ========== 启动 ==========
+    async function boot() {
+      try {
+        // 1. 初始化地图
+        showLoading();
+        await initMap();
+
+        // 2. 默认加载 1 小时轨迹
+        currentHours = 1;
+        setActiveButton(1);
+
+        const result = await fetchTrack(1);
+        hideLoading();
+
+        if (!result) {
+          // 网络/服务端错误
+          updateStatus([], { count: 0, offline: true, lastActive: null });
+          showEmpty('无法连接到服务，请稍后重试');
+          return;
+        }
+
+        const { data, count, lastActive, offline } = result;
+
+        if (data && data.length > 0) {
+          renderTrack(data);
+        } else {
+          if (lastActive) {
+            showEmpty(`暂无最近 1 小时轨迹数据\n最后上报：${formatTime(lastActive)} (${timeAgo(lastActive)})`);
+          } else {
+            showEmpty('暂无轨迹数据\n等待设备上报…');
+          }
+        }
+
+        updateStatus(data, { count, lastActive, offline });
+
+        // 启动自动刷新
+        startAutoRefresh();
+
+      } catch (err) {
+        hideLoading();
+        console.error('[App] 启动失败:', err.message);
+        statusDot.className = 'offline';
+        statusText.textContent = '地图加载失败，请刷新页面';
+      }
+    }
+
+    // ========== 无声刷新（不显示加载动画，数据没变不重绘） ==========
+    async function silentRefresh() {
+      try {
+        const url = `/api/query?hours=${currentHours}`;
+        const resp = await fetch(url);
+        const json = await resp.json();
+
+        if (!json.success || !json.data) return;
+
+        // 计算数据指纹（最后一条的 ts + 总数）
+        const last = json.data.length > 0 ? json.data[json.data.length - 1].ts : '';
+        const hash = `${json.data.length}|${last}`;
+
+        if (hash === lastDataHash) return; // 无新数据，跳过
+        lastDataHash = hash;
+
+        console.log(`[Auto] 检测到新数据 — ${json.data.length} 个点位`);
+
+        // 渲染新数据
+        if (json.data.length > 0) {
+          renderTrack(json.data);
+          hideEmpty();
+        }
+
+        updateStatus(json.data, {
+          count: json.data.length,
+          lastActive: json.lastActive,
+          offline: json.offline,
+          timeRange: json.timeRange,
+        });
+      } catch (err) {
+        // 静默忽略网络错误
+        console.warn('[Auto] 刷新失败:', err.message);
+      }
+    }
+
+    function startAutoRefresh() {
+      if (autoTimer) clearInterval(autoTimer);
+      console.log(`[Auto] 启动自动刷新，间隔 ${POLL_INTERVAL / 1000}s`);
+      autoTimer = setInterval(silentRefresh, POLL_INTERVAL);
+    }
+
+    // ========== 事件绑定 ==========
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const hours = parseInt(btn.dataset.hours, 10);
+        if (hours !== currentHours) {
+          switchHours(hours);
+        }
+      });
+    });
+
+    // 窗口大小变化时重新适配视野
+    window.addEventListener('resize', () => {
+      // 仅做防抖提示，实际由地图自动 resize
+    });
+
+    // ========== 启动应用 ==========
+    boot();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/collect.js": {
+      "maxDuration": 10
+    },
+    "api/query.js": {
+      "maxDuration": 10
+    }
+  }
+}

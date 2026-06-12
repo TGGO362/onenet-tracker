@@ -1,0 +1,14 @@
+{
+  "name": "onenet-tracker",
+  "version": "1.0.0",
+  "description": "OneNet + Vercel + 高德地图 12 小时轨迹系统",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.38.0",
+    "vercel": "^54.12.0"
+  }
+}
