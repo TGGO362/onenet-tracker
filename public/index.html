@@ -94,6 +94,50 @@
       color: #007aff;
     }
 
+    /* ---- 拖拽设置按钮 ---- */
+    #settings-gear {
+      position: fixed; z-index: 300;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(255,255,255,0.94); backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      border: none; cursor: grab;
+      font-size: 22px; line-height: 44px; text-align: center;
+      user-select: none; -webkit-user-select: none;
+      touch-action: none;
+      transition: box-shadow 0.2s;
+      bottom: auto; right: auto;
+    }
+    #settings-gear:active { cursor: grabbing; box-shadow: 0 4px 20px rgba(0,0,0,0.25); }
+
+    /* ---- 设置面板 ---- */
+    #settings-panel {
+      position: fixed; z-index: 290;
+      background: rgba(255,255,255,0.96); backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 12px; padding: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      display: none; flex-direction: column; gap: 10px;
+      min-width: 200px;
+      font-size: 13px; color: #333;
+    }
+    #settings-panel.show { display: flex; }
+    #settings-panel label { font-weight: 500; }
+    #settings-panel .row { display: flex; align-items: center; gap: 8px; }
+    #settings-panel input {
+      width: 80px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 14px; text-align: center; outline: none;
+    }
+    #settings-panel input:focus { border-color: #007aff; }
+    #settings-panel button.apply-btn {
+      padding: 6px 16px; border: none; border-radius: 6px;
+      background: #007aff; color: #fff; font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: all 0.15s;
+    }
+    #settings-panel button.apply-btn:hover { background: #0056cc; }
+    #settings-panel button.apply-btn:active { transform: scale(0.96); }
+    #settings-panel .hint { font-size: 11px; color: #999; }
+
     /* ---- 移动端适配 ---- */
     @media (max-width: 480px) {
       #status-bar { font-size: 12px; padding: 8px 10px; }
@@ -130,6 +174,19 @@
     <button data-hours="12">12小时</button>
   </div>
 
+  <!-- ===== 设置齿轮按钮 ===== -->
+  <button id="settings-gear" title="设置">⚙</button>
+
+  <!-- ===== 设置面板 ===== -->
+  <div id="settings-panel">
+    <label>自动刷新间隔（秒）</label>
+    <div class="row">
+      <input id="interval-input" type="number" value="30" min="0" max="3600" placeholder="秒">
+      <button class="apply-btn" id="interval-apply">应用</button>
+    </div>
+    <span class="hint">设为 0 关闭自动刷新</span>
+  </div>
+
   <!-- ===== 高德地图安全密钥 — 必须在 JS API 加载前声明 ===== -->
   <script>
     window._AMapSecurityConfig = {
@@ -152,7 +209,11 @@
     const pointCountEl = document.getElementById('point-count');
     const loadingEl    = document.getElementById('loading');
     const emptyHintEl  = document.getElementById('empty-hint');
-    const buttons      = document.querySelectorAll('#controls button');
+    const buttons      = document.querySelectorAll('#controls button[data-hours]');
+    const gearBtn      = document.getElementById('settings-gear');
+    const panel        = document.getElementById('settings-panel');
+    const intervalInp  = document.getElementById('interval-input');
+    const applyBtn     = document.getElementById('interval-apply');
 
     // ========== 状态 ==========
     let map            = null;    // AMap 实例
@@ -163,9 +224,7 @@
     let fetchTimer     = null;    // 防止重复请求
     let autoTimer      = null;    // 自动刷新定时器
     let lastDataHash   = '';      // 上次数据指纹，避免无变化时重复渲染
-
-    // ========== 轮询间隔（30 秒自动刷新） ==========
-    const POLL_INTERVAL = 30000;
+    let pollInterval   = 30000;   // 当前刷新间隔（ms），默认 30s
 
     // ========== 时段标签 ==========
     const HOUR_LABELS = { 1: '1 小时', 3: '3 小时', 6: '6 小时', 9: '9 小时', 12: '12 小时' };
@@ -191,6 +250,29 @@
       if (sec < 3600) return `${Math.floor(sec/60)} 分钟前`;
       if (sec < 86400) return `${Math.floor(sec/3600)} 小时前`;
       return `${Math.floor(sec/86400)} 天前`;
+    }
+
+    // ========== GPS 优先过滤 ==========
+    const SUPPRESS_WINDOW_MS = 5000; // GPS 到达后 5s 内抑制基站
+
+    function filterGpsPreferred(points) {
+      if (!points || points.length <= 1) return points;
+      // 收集所有 GPS 点的时间戳
+      const gpsTimestamps = points
+        .filter(p => p.type === 'gps')
+        .map(p => new Date(p.ts).getTime());
+      if (gpsTimestamps.length === 0) return points; // 无 GPS，全部保留
+      return points.filter(p => {
+        if (p.type === 'gps') return true; // GPS 始终保留
+        // 基站：检查是否落在任一 GPS 之后的 5s 窗口内
+        const myTs = new Date(p.ts).getTime();
+        for (const gpsTs of gpsTimestamps) {
+          if (myTs > gpsTs && myTs - gpsTs <= SUPPRESS_WINDOW_MS) {
+            return false; // 在 GPS 后 5s 内，丢弃
+          }
+        }
+        return true; // GPS 之前或超过 5s，保留
+      });
     }
 
     // ========== 初始化地图 ==========
@@ -399,9 +481,14 @@
 
       const { data, count, lastActive, offline, timeRange } = result;
 
+      // GPS 优先过滤
+      const filtered = data ? filterGpsPreferred(data) : [];
+      const removed = data ? data.length - filtered.length : 0;
+      if (removed > 0) console.log(`[App] GPS优先: 过滤 ${removed} 个冗余基站点位`);
+
       // 渲染轨迹
-      if (data && data.length > 0) {
-        renderTrack(data);
+      if (filtered.length > 0) {
+        renderTrack(filtered);
         showEmpty(''); // 隐藏空提示
       } else {
         clearOverlays();
@@ -413,7 +500,7 @@
       }
 
       // 更新状态
-      updateStatus(data, { count, lastActive, offline, timeRange });
+      updateStatus(filtered, { count: filtered.length, lastActive, offline, timeRange });
     }
 
     // ========== 启动 ==========
@@ -439,8 +526,12 @@
 
         const { data, count, lastActive, offline } = result;
 
-        if (data && data.length > 0) {
-          renderTrack(data);
+        const filtered = data ? filterGpsPreferred(data) : [];
+        const removed = data ? data.length - filtered.length : 0;
+        if (removed > 0) console.log(`[App] GPS优先: 过滤 ${removed} 个冗余基站点位`);
+
+        if (filtered.length > 0) {
+          renderTrack(filtered);
         } else {
           if (lastActive) {
             showEmpty(`暂无最近 1 小时轨迹数据\n最后上报：${formatTime(lastActive)} (${timeAgo(lastActive)})`);
@@ -449,9 +540,10 @@
           }
         }
 
-        updateStatus(data, { count, lastActive, offline });
+        updateStatus(filtered, { count: filtered.length, lastActive, offline });
 
-        // 启动自动刷新
+        // 初始化齿轮位置并启动自动刷新
+        applyGearPos();
         startAutoRefresh();
 
       } catch (err) {
@@ -471,23 +563,25 @@
 
         if (!json.success || !json.data) return;
 
+        const filtered = filterGpsPreferred(json.data);
+
         // 计算数据指纹（最后一条的 ts + 总数）
-        const last = json.data.length > 0 ? json.data[json.data.length - 1].ts : '';
-        const hash = `${json.data.length}|${last}`;
+        const last = filtered.length > 0 ? filtered[filtered.length - 1].ts : '';
+        const hash = `${filtered.length}|${last}`;
 
         if (hash === lastDataHash) return; // 无新数据，跳过
         lastDataHash = hash;
 
-        console.log(`[Auto] 检测到新数据 — ${json.data.length} 个点位`);
+        console.log(`[Auto] 检测到新数据 — ${filtered.length} 个点位`);
 
         // 渲染新数据
-        if (json.data.length > 0) {
-          renderTrack(json.data);
+        if (filtered.length > 0) {
+          renderTrack(filtered);
           hideEmpty();
         }
 
-        updateStatus(json.data, {
-          count: json.data.length,
+        updateStatus(filtered, {
+          count: filtered.length,
           lastActive: json.lastActive,
           offline: json.offline,
           timeRange: json.timeRange,
@@ -500,8 +594,19 @@
 
     function startAutoRefresh() {
       if (autoTimer) clearInterval(autoTimer);
-      console.log(`[Auto] 启动自动刷新，间隔 ${POLL_INTERVAL / 1000}s`);
-      autoTimer = setInterval(silentRefresh, POLL_INTERVAL);
+      if (pollInterval > 0) {
+        console.log(`[Auto] 启动自动刷新，间隔 ${pollInterval / 1000}s`);
+        autoTimer = setInterval(silentRefresh, pollInterval);
+      } else {
+        console.log('[Auto] 自动刷新已关闭');
+        autoTimer = null;
+      }
+    }
+
+    function setRefreshInterval(intervalMs) {
+      pollInterval = intervalMs;
+      intervalInp.value = Math.round(intervalMs / 1000);
+      startAutoRefresh();
     }
 
     // ========== 事件绑定 ==========
@@ -513,6 +618,101 @@
         }
       });
     });
+
+    // ========== 设置齿轮：拖拽 + 面板 ==========
+    let isDragging   = false;   // 当前是否正在拖拽
+    let hasMoved     = false;   // 本次按压是否有位移（区分 click vs drag）
+    let dragStartX   = 0;
+    let dragStartY   = 0;
+    let gearStartX   = 0;       // 拖拽开始时的 gear 位置
+    let gearStartY   = 0;
+    let gearX = window.innerWidth - 60;   // 默认右下角
+    let gearY = window.innerHeight - 160;
+
+    function applyGearPos() {
+      gearBtn.style.left = Math.max(0, Math.min(window.innerWidth - 44, gearX)) + 'px';
+      gearBtn.style.top  = Math.max(0, Math.min(window.innerHeight - 44, gearY)) + 'px';
+    }
+
+    function onPointerDown(e) {
+      // 只响应齿轮上的按压
+      if (!gearBtn.contains(e.target)) return;
+      isDragging = true;
+      hasMoved = false;
+      const pt = e.touches ? e.touches[0] : e;
+      dragStartX = pt.clientX;
+      dragStartY = pt.clientY;
+      const r = gearBtn.getBoundingClientRect();
+      gearStartX = r.left;
+      gearStartY = r.top;
+      gearBtn.style.transition = 'none';
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging) return;
+      const pt = e.touches ? e.touches[0] : e;
+      const dx = pt.clientX - dragStartX;
+      const dy = pt.clientY - dragStartY;
+      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return; // 3px 阈值
+      hasMoved = true;
+      gearX = Math.max(0, Math.min(window.innerWidth - 44, gearStartX + dx));
+      gearY = Math.max(0, Math.min(window.innerHeight - 44, gearStartY + dy));
+      gearBtn.style.left = gearX + 'px';
+      gearBtn.style.top  = gearY + 'px';
+      // 面板跟随
+      if (panel.classList.contains('show')) {
+        panel.style.left = gearX + 'px';
+        panel.style.top  = Math.min(window.innerHeight - 160, gearY + 52) + 'px';
+      }
+    }
+
+    function onPointerUp() {
+      isDragging = false;
+      gearBtn.style.transition = '';
+    }
+
+    gearBtn.addEventListener('mousedown', onPointerDown);
+    gearBtn.addEventListener('touchstart', onPointerDown);
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('touchmove', onPointerMove);
+    window.addEventListener('mouseup', onPointerUp);
+    window.addEventListener('touchend', onPointerUp);
+
+    // 点击齿轮切换面板（未拖拽时）
+    gearBtn.addEventListener('click', () => {
+      if (hasMoved) return;
+      panel.classList.toggle('show');
+      if (panel.classList.contains('show')) {
+        const r = gearBtn.getBoundingClientRect();
+        panel.style.left = Math.max(0, r.left) + 'px';
+        panel.style.top  = Math.min(window.innerHeight - 160, r.bottom + 8) + 'px';
+      }
+    });
+
+    // 点击地图关闭面板
+    mapEl.addEventListener('click', (e) => {
+      if (!gearBtn.contains(e.target) && !panel.contains(e.target)) {
+        panel.classList.remove('show');
+      }
+    });
+
+    // 应用按钮
+    applyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      let sec = parseInt(intervalInp.value, 10);
+      if (isNaN(sec) || sec < 0) sec = 30;
+      if (sec > 3600) sec = 3600;
+      intervalInp.value = sec;
+      setRefreshInterval(sec * 1000);
+    });
+
+    // 回车提交
+    intervalInp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') applyBtn.click();
+    });
+
+    // 阻止面板上的点击冒泡到地图（否则会关闭面板）
+    panel.addEventListener('click', (e) => e.stopPropagation());
 
     // 窗口大小变化时重新适配视野
     window.addEventListener('resize', () => {
