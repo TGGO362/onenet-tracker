@@ -32,7 +32,7 @@ module.exports = async function handler(req, res) {
       minTs = new Date(req.query.start).getTime();
       if (isNaN(minTs)) return res.status(400).json({ success: false, error: 'start 参数格式无效' });
     } else {
-      minTs = now - 24 * 60 * 60 * 1000; // 默认 24h（覆盖 Redis 12h TTL 全部数据）
+      minTs = now - 48 * 60 * 60 * 1000; // 默认 48h（覆盖 Redis TTL 全部数据）
     }
 
     if (req.query.end) {

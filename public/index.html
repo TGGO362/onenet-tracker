@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>设备轨迹 - 12h 回溯</title>
+  <title>设备轨迹 - 48h 回溯</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -897,9 +897,9 @@
     const dumpCountEl   = document.getElementById('dump-count');
 
     function openDumpModal() {
-      // 默认填最近 12 小时
+      // 默认填最近 48 小时
       const now = new Date();
-      const ago = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+      const ago = new Date(now.getTime() - 48 * 60 * 60 * 1000);
       dumpStartInp.value = toLocalDatetime(ago);
       dumpEndInp.value   = toLocalDatetime(now);
       dumpOverlay.classList.add('show');
