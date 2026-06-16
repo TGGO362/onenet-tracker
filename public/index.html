@@ -7,69 +7,91 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    html, body {
+      height: 100%; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-feature-settings: "tnum";
+      -webkit-font-smoothing: antialiased;
+    }
 
     /* ---- 地图容器 ---- */
-    #map {
-      width: 100%; height: 100%;
-      background: #e8edf0;
-    }
+    #map { width: 100%; height: 100%; background: #e8edf0; }
 
     /* ---- 顶部状态栏 ---- */
     #status-bar {
       position: fixed; top: 12px; left: 12px; right: 12px; z-index: 100;
-      background: rgba(255,255,255,0.94); backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border-radius: 10px; padding: 10px 14px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.10);
-      font-size: 13px; color: #333;
-      display: flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,0.86);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      border-radius: 11px; padding: 9px 13px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.06);
+      font-size: 12.5px; color: #1A1D23;
+      display: flex; align-items: center; gap: 9px;
       flex-wrap: wrap;
-      transition: opacity 0.3s;
+      letter-spacing: -0.01em;
     }
     #status-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-      background: #ccc;
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+      background: #D1D5DB;
+      transition: background 0.3s;
     }
-    #status-dot.online  { background: #34c759; }
-    #status-dot.offline { background: #ff9500; }
-    #status-text { flex: 1; min-width: 0; }
-    #point-count { font-weight: 600; color: #007aff; white-space: nowrap; }
-    #gps-count { color: #007aff; white-space: nowrap; }
-    #bs-count  { color: #ff3b30; white-space: nowrap; }
+    #status-dot.online {
+      background: #1EAA50;
+      animation: dot-pulse 2.2s ease-out infinite;
+    }
+    #status-dot.offline { background: #D97706; }
 
-    /* ---- 底部控制栏 ---- */
+    @keyframes dot-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(30,170,80,0.45); }
+      60%  { box-shadow: 0 0 0 7px rgba(30,170,80,0); }
+      100% { box-shadow: 0 0 0 0 rgba(30,170,80,0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #status-dot.online { animation: none; }
+    }
+
+    #status-text { flex: 1; min-width: 0; font-weight: 500; }
+    #point-count { font-weight: 600; color: #0066CC; white-space: nowrap; font-size: 12.5px; }
+    #gps-count  { color: #0077B6; white-space: nowrap; font-size: 12.5px; font-weight: 500; }
+    #bs-count   { color: #D97706; white-space: nowrap; font-size: 12.5px; font-weight: 500; }
+
+    /* ---- 底部时段选择器 ---- */
     #controls {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
       z-index: 100;
-      display: flex; gap: 6px;
-      background: rgba(255,255,255,0.94); backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border-radius: 12px; padding: 6px;
-      box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+      display: flex;
+      background: rgba(255,255,255,0.86);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      border-radius: 10px; padding: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.06);
     }
     #controls button {
-      min-width: 48px; height: 38px; padding: 0 16px;
-      border: none; border-radius: 8px; cursor: pointer;
-      font-size: 14px; font-weight: 500;
-      background: transparent; color: #555;
-      transition: all 0.15s;
+      min-width: 46px; height: 34px; padding: 0 14px;
+      border: none; border-radius: 7px; cursor: pointer;
+      font-size: 13px; font-weight: 530;
+      background: transparent; color: #5F6B7A;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
       white-space: nowrap;
+      letter-spacing: -0.01em;
     }
-    #controls button:hover   { background: #f0f0f5; }
-    #controls button:active  { transform: scale(0.96); }
-    #controls button.active  {
-      background: #007aff; color: #fff;
-      box-shadow: 0 2px 8px rgba(0,122,255,0.3);
+    #controls button:hover  { color: #1A1D23; background: rgba(0,0,0,0.04); }
+    #controls button:active { transform: scale(0.96); }
+    #controls button.active {
+      background: #0066CC; color: #fff;
+      box-shadow: 0 1px 3px rgba(0,102,204,0.30), 0 0 0 2px rgba(0,102,204,0.12);
     }
 
     /* ---- 加载指示器 ---- */
     #loading {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
       z-index: 200; pointer-events: none;
-      background: rgba(0,0,0,0.7); color: #fff;
-      padding: 8px 20px; border-radius: 20px;
-      font-size: 13px; display: none;
+      background: rgba(26,29,35,0.82); color: #fff;
+      padding: 9px 22px; border-radius: 20px;
+      font-size: 13px; font-weight: 500; display: none;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      letter-spacing: -0.01em;
     }
     #loading.show { display: block; }
 
@@ -77,115 +99,190 @@
     #empty-hint {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
       z-index: 90; pointer-events: none;
-      background: rgba(255,255,255,0.92); color: #888;
-      padding: 12px 22px; border-radius: 10px;
-      font-size: 14px; display: none;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-      text-align: center;
+      background: rgba(255,255,255,0.90); color: #6B7280;
+      padding: 14px 24px; border-radius: 11px;
+      font-size: 13.5px; display: none;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.05);
+      text-align: center; line-height: 1.55;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
     }
     #empty-hint.show { display: block; }
 
-    /* ---- 信息窗体样式 ---- */
+    /* ---- 信息窗体 ---- */
     .amap-info-content {
-      font-size: 12px; line-height: 1.6;
+      font-size: 12px; line-height: 1.65;
       padding: 2px 0;
     }
-    .amap-info-content b {
-      color: #007aff;
-    }
+    .amap-info-content b { color: #0066CC; }
 
-    /* ---- 拖拽设置按钮 ---- */
+    /* ---- 拖拽设置齿轮 ---- */
     #settings-gear {
       position: fixed; z-index: 300;
-      width: 44px; height: 44px; border-radius: 50%;
-      background: rgba(255,255,255,0.94); backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      width: 42px; height: 42px; border-radius: 50%;
+      background: rgba(255,255,255,0.86);
+      backdrop-filter: blur(16px) saturate(1.4);
+      -webkit-backdrop-filter: blur(16px) saturate(1.4);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06);
       border: none; cursor: grab;
-      font-size: 22px; line-height: 44px; text-align: center;
+      font-size: 20px; line-height: 42px; text-align: center;
       user-select: none; -webkit-user-select: none;
       touch-action: none;
-      transition: box-shadow 0.2s;
+      transition: box-shadow 0.25s, transform 0.15s;
       bottom: auto; right: auto;
+      color: #4B5563;
     }
-    #settings-gear:active { cursor: grabbing; box-shadow: 0 4px 20px rgba(0,0,0,0.25); }
+    #settings-gear:hover {
+      box-shadow: 0 4px 18px rgba(0,102,204,0.18), 0 0 0 3px rgba(0,102,204,0.08);
+      color: #0066CC;
+    }
+    #settings-gear:active {
+      cursor: grabbing;
+      box-shadow: 0 6px 24px rgba(0,102,204,0.25), 0 0 0 4px rgba(0,102,204,0.14);
+      transform: scale(0.94);
+    }
 
     /* ---- 设置面板 ---- */
     #settings-panel {
       position: fixed; z-index: 290;
-      background: rgba(255,255,255,0.96); backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-radius: 12px; padding: 16px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-radius: 12px; padding: 15px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.10), 0 0 0 0.5px rgba(0,0,0,0.06);
       display: none; flex-direction: column; gap: 10px;
-      min-width: 200px;
-      font-size: 13px; color: #333;
+      min-width: 210px;
+      font-size: 13px; color: #1A1D23;
     }
     #settings-panel.show { display: flex; }
-    #settings-panel label { font-weight: 500; }
+    #settings-panel label { font-weight: 600; font-size: 12.5px; color: #374151; letter-spacing: -0.01em; }
     #settings-panel .row { display: flex; align-items: center; gap: 8px; }
     #settings-panel input {
-      width: 80px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px;
-      font-size: 14px; text-align: center; outline: none;
+      width: 80px; padding: 7px 9px;
+      border: 1px solid #D1D5DB; border-radius: 7px;
+      font-size: 13.5px; text-align: center; outline: none;
+      font-feature-settings: "tnum";
+      transition: border-color 0.15s, box-shadow 0.15s;
+      color: #1A1D23;
     }
-    #settings-panel input:focus { border-color: #007aff; }
+    #settings-panel input:focus {
+      border-color: #0066CC;
+      box-shadow: 0 0 0 3px rgba(0,102,204,0.10);
+    }
     #settings-panel button.apply-btn {
-      padding: 6px 16px; border: none; border-radius: 6px;
-      background: #007aff; color: #fff; font-size: 13px; font-weight: 500;
+      padding: 7px 18px; border: none; border-radius: 7px;
+      background: #0066CC; color: #fff;
+      font-size: 13px; font-weight: 530;
       cursor: pointer; transition: all 0.15s;
+      letter-spacing: -0.01em;
     }
-    #settings-panel button.apply-btn:hover { background: #0056cc; }
+    #settings-panel button.apply-btn:hover { background: #0052A3; }
     #settings-panel button.apply-btn:active { transform: scale(0.96); }
-    #settings-panel .hint { font-size: 11px; color: #999; }
+    #settings-panel .hint { font-size: 11px; color: #9CA3AF; }
 
     /* ---- 数据库查询弹窗 ---- */
     #dump-overlay {
       position: fixed; inset: 0; z-index: 400;
-      background: rgba(0,0,0,0.4); display: none;
+      background: rgba(15,17,21,0.45);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      display: none;
       align-items: center; justify-content: center;
     }
     #dump-overlay.show { display: flex; }
     #dump-modal {
-      background: #fff; border-radius: 12px; padding: 20px;
-      width: 90vw; max-width: 700px; max-height: 80vh;
-      display: flex; flex-direction: column; gap: 12px;
-      box-shadow: 0 8px 40px rgba(0,0,0,0.2);
-      font-size: 13px; color: #333;
+      background: #fff; border-radius: 14px; padding: 22px;
+      width: 92vw; max-width: 720px; max-height: 82vh;
+      display: flex; flex-direction: column; gap: 13px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.08);
+      font-size: 13px; color: #1A1D23;
     }
-    #dump-modal h3 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+    #dump-modal h3 {
+      margin: 0; font-size: 16px; font-weight: 650;
+      display: flex; justify-content: space-between; align-items: center;
+      color: #111827; letter-spacing: -0.01em;
+    }
     #dump-modal .close-btn {
-      background: none; border: none; font-size: 20px; cursor: pointer;
-      color: #999; line-height: 1; padding: 0 4px;
+      background: none; border: none; font-size: 22px; cursor: pointer;
+      color: #9CA3AF; line-height: 1; padding: 2px 6px; border-radius: 6px;
+      transition: all 0.15s;
     }
-    #dump-modal .close-btn:hover { color: #333; }
+    #dump-modal .close-btn:hover { color: #1A1D23; background: #F3F4F6; }
     #dump-modal .filter-row {
       display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
     }
+    #dump-modal .filter-row label {
+      font-size: 12.5px; font-weight: 530; color: #6B7280;
+    }
     #dump-modal .filter-row input {
-      padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px;
-      font-size: 13px; outline: none;
+      padding: 7px 9px; border: 1px solid #D1D5DB; border-radius: 7px;
+      font-size: 12.5px; outline: none; color: #1A1D23;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    #dump-modal .filter-row input:focus { border-color: #007aff; }
+    #dump-modal .filter-row input:focus {
+      border-color: #0066CC;
+      box-shadow: 0 0 0 3px rgba(0,102,204,0.10);
+    }
     #dump-modal .filter-row button {
-      padding: 6px 14px; border: none; border-radius: 6px;
-      background: #007aff; color: #fff; font-size: 13px; font-weight: 500;
-      cursor: pointer;
+      padding: 7px 16px; border: none; border-radius: 7px;
+      background: #0066CC; color: #fff;
+      font-size: 12.5px; font-weight: 530;
+      cursor: pointer; transition: all 0.15s;
+      letter-spacing: -0.01em;
     }
-    #dump-modal .filter-row button:hover { background: #0056cc; }
-    #dump-modal .table-wrap { overflow: auto; flex: 1; }
-    #dump-modal table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    #dump-modal .filter-row button:hover { background: #0052A3; }
+    #dump-modal .table-wrap {
+      overflow: auto; flex: 1;
+      border-radius: 8px;
+      border: 1px solid #E5E7EB;
+    }
+    #dump-modal table {
+      width: 100%; border-collapse: collapse; white-space: nowrap;
+      font-feature-settings: "tnum";
+    }
     #dump-modal th, #dump-modal td {
-      padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left;
+      padding: 9px 12px; text-align: left;
+      font-size: 12.5px;
     }
-    #dump-modal th { background: #f5f5f7; font-weight: 600; position: sticky; top: 0; }
-    #dump-modal .gps-tag { color: #007aff; font-weight: 600; }
-    #dump-modal .bs-tag  { color: #ff3b30; font-weight: 600; }
-    #dump-modal .row-count { color: #888; font-size: 12px; }
+    #dump-modal th {
+      background: #F8FAFC; font-weight: 600; color: #374151;
+      position: sticky; top: 0; z-index: 2;
+      border-bottom: 2px solid #E5E7EB;
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+    #dump-modal tbody tr:nth-child(even) { background: #F9FAFB; }
+    #dump-modal tbody tr:hover { background: #EEF2FF; }
+    #dump-modal tbody td { border-bottom: 1px solid #F3F4F6; }
+    #dump-modal .gps-tag {
+      color: #0077B6; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 3px;
+    }
+    #dump-modal .gps-tag::before { content: '●'; font-size: 8px; }
+    #dump-modal .bs-tag {
+      color: #D97706; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 3px;
+    }
+    #dump-modal .bs-tag::before { content: '●'; font-size: 8px; }
+    #dump-modal .row-count { color: #6B7280; font-size: 12px; font-weight: 500; }
+
+    /* ---- 滚动条 ---- */
+    .table-wrap::-webkit-scrollbar { width: 5px; height: 5px; }
+    .table-wrap::-webkit-scrollbar-track { background: transparent; }
+    .table-wrap::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+    .table-wrap::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 
     /* ---- 移动端适配 ---- */
     @media (max-width: 480px) {
-      #status-bar { font-size: 12px; padding: 8px 10px; }
-      #controls button { min-width: 40px; padding: 0 12px; font-size: 13px; }
+      #status-bar  { font-size: 11.5px; padding: 8px 10px; gap: 7px; border-radius: 9px; }
+      #controls button { min-width: 38px; padding: 0 10px; font-size: 12px; height: 30px; }
+      #controls { padding: 3px; border-radius: 8px; }
+      #settings-gear { width: 38px; height: 38px; font-size: 18px; line-height: 38px; }
+      #settings-panel { min-width: 180px; padding: 12px; font-size: 12px; }
+      #dump-modal { width: 96vw; padding: 16px; max-height: 88vh; gap: 10px; }
+      #dump-modal .filter-row { gap: 5px; }
+      #dump-modal .filter-row input { width: 120px; }
+      #dump-modal th, #dump-modal td { padding: 7px 8px; font-size: 11.5px; }
+      #point-count, #gps-count, #bs-count { font-size: 11.5px; }
     }
   </style>
 </head>
@@ -395,7 +492,7 @@
       // --- 绘制轨迹折线 ---
       polyline = new AMap.Polyline({
         path: positions,
-        strokeColor: '#007aff',
+        strokeColor: '#0066CC',
         strokeWeight: 3,
         strokeOpacity: 0.7,
         lineJoin: 'round',
@@ -408,8 +505,8 @@
       // --- 绘制标记点 ---
       data.forEach((p, i) => {
         const isLast = (i === data.length - 1);
-        const isGps  = p.type === 'gps';          // GPS=蓝点, 基站=红点
-        const color  = isGps ? '#007aff' : '#ff3b30';
+        const isGps  = p.type === 'gps';          // GPS=钢蓝, 基站=琥珀
+        const color  = isGps ? '#0077B6' : '#D97706';
         const label  = isGps ? 'GPS' : '基站';
         const size   = isLast ? 22 : 14;
         const content = isLast ? '' : String(i + 1);
