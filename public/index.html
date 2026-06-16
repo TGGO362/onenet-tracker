@@ -138,6 +138,50 @@
     #settings-panel button.apply-btn:active { transform: scale(0.96); }
     #settings-panel .hint { font-size: 11px; color: #999; }
 
+    /* ---- 数据库查询弹窗 ---- */
+    #dump-overlay {
+      position: fixed; inset: 0; z-index: 400;
+      background: rgba(0,0,0,0.4); display: none;
+      align-items: center; justify-content: center;
+    }
+    #dump-overlay.show { display: flex; }
+    #dump-modal {
+      background: #fff; border-radius: 12px; padding: 20px;
+      width: 90vw; max-width: 700px; max-height: 80vh;
+      display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+      font-size: 13px; color: #333;
+    }
+    #dump-modal h3 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+    #dump-modal .close-btn {
+      background: none; border: none; font-size: 20px; cursor: pointer;
+      color: #999; line-height: 1; padding: 0 4px;
+    }
+    #dump-modal .close-btn:hover { color: #333; }
+    #dump-modal .filter-row {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    #dump-modal .filter-row input {
+      padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 13px; outline: none;
+    }
+    #dump-modal .filter-row input:focus { border-color: #007aff; }
+    #dump-modal .filter-row button {
+      padding: 6px 14px; border: none; border-radius: 6px;
+      background: #007aff; color: #fff; font-size: 13px; font-weight: 500;
+      cursor: pointer;
+    }
+    #dump-modal .filter-row button:hover { background: #0056cc; }
+    #dump-modal .table-wrap { overflow: auto; flex: 1; }
+    #dump-modal table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+    #dump-modal th, #dump-modal td {
+      padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left;
+    }
+    #dump-modal th { background: #f5f5f7; font-weight: 600; position: sticky; top: 0; }
+    #dump-modal .gps-tag { color: #007aff; font-weight: 600; }
+    #dump-modal .bs-tag  { color: #ff3b30; font-weight: 600; }
+    #dump-modal .row-count { color: #888; font-size: 12px; }
+
     /* ---- 移动端适配 ---- */
     @media (max-width: 480px) {
       #status-bar { font-size: 12px; padding: 8px 10px; }
@@ -185,6 +229,30 @@
       <button class="apply-btn" id="interval-apply">应用</button>
     </div>
     <span class="hint">设为 0 关闭自动刷新</span>
+    <hr style="border:none;border-top:1px solid #eee;margin:4px 0;">
+    <button class="apply-btn" id="dump-open-btn" style="width:100%;">📋 查询数据库</button>
+  </div>
+
+  <!-- ===== 数据库查询弹窗 ===== -->
+  <div id="dump-overlay">
+    <div id="dump-modal">
+      <h3>📋 数据库记录 <button class="close-btn" id="dump-close-btn">&times;</button></h3>
+      <div class="filter-row">
+        <label>起始</label>
+        <input id="dump-start" type="datetime-local">
+        <label>结束</label>
+        <input id="dump-end" type="datetime-local">
+        <button id="dump-query-btn">筛选</button>
+        <button id="dump-all-btn" style="background:#34c759;">全部</button>
+      </div>
+      <div class="table-wrap">
+        <table id="dump-table">
+          <thead><tr><th>类型</th><th>时间</th><th>经度</th><th>纬度</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <span class="row-count" id="dump-count"></span>
+    </div>
   </div>
 
   <!-- ===== 高德地图安全密钥 — 必须在 JS API 加载前声明 ===== -->
@@ -718,6 +786,106 @@
     window.addEventListener('resize', () => {
       // 仅做防抖提示，实际由地图自动 resize
     });
+
+    // ========== 数据库查询弹窗 ==========
+    const dumpOverlay   = document.getElementById('dump-overlay');
+    const dumpModal     = document.getElementById('dump-modal');
+    const dumpOpenBtn   = document.getElementById('dump-open-btn');
+    const dumpCloseBtn  = document.getElementById('dump-close-btn');
+    const dumpStartInp  = document.getElementById('dump-start');
+    const dumpEndInp    = document.getElementById('dump-end');
+    const dumpQueryBtn  = document.getElementById('dump-query-btn');
+    const dumpAllBtn    = document.getElementById('dump-all-btn');
+    const dumpTableBody = document.querySelector('#dump-table tbody');
+    const dumpCountEl   = document.getElementById('dump-count');
+
+    function openDumpModal() {
+      // 默认填最近 12 小时
+      const now = new Date();
+      const ago = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+      dumpStartInp.value = toLocalDatetime(ago);
+      dumpEndInp.value   = toLocalDatetime(now);
+      dumpOverlay.classList.add('show');
+      fetchDump();
+    }
+
+    function closeDumpModal() {
+      dumpOverlay.classList.remove('show');
+    }
+
+    function toLocalDatetime(date) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    async function fetchDump() {
+      try {
+        dumpTableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;">加载中…</td></tr>';
+        let url = '/api/dump';
+        const start = dumpStartInp.value;
+        const end   = dumpEndInp.value;
+        if (start) url += `?start=${new Date(start).toISOString()}`;
+        if (end)   url += `${start ? '&' : '?'}end=${new Date(end).toISOString()}`;
+
+        const resp = await fetch(url);
+        const json = await resp.json();
+        if (!json.success) {
+          dumpTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#ff3b30;">${json.error || '查询失败'}</td></tr>`;
+          dumpCountEl.textContent = '';
+          return;
+        }
+        renderDumpTable(json.data);
+      } catch (err) {
+        dumpTableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#ff3b30;">网络错误</td></tr>';
+        dumpCountEl.textContent = '';
+      }
+    }
+
+    function renderDumpTable(data) {
+      dumpTableBody.innerHTML = '';
+      if (!data || data.length === 0) {
+        dumpTableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;">无数据</td></tr>';
+        dumpCountEl.textContent = '';
+        return;
+      }
+      data.forEach(p => {
+        const tr = document.createElement('tr');
+        const typeHtml = p.type === 'gps'
+          ? '<span class="gps-tag">GPS</span>'
+          : '<span class="bs-tag">基站</span>';
+        const time = p.ts ? new Date(p.ts).toLocaleString('zh-CN') : '--';
+        tr.innerHTML = `<td>${typeHtml}</td><td>${time}</td><td>${p.lng.toFixed(6)}</td><td>${p.lat.toFixed(6)}</td>`;
+        dumpTableBody.appendChild(tr);
+      });
+      dumpCountEl.textContent = `共 ${data.length} 条记录`;
+    }
+
+    // 打开弹窗
+    dumpOpenBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      panel.classList.remove('show'); // 关闭设置面板
+      openDumpModal();
+    });
+
+    // 关闭弹窗
+    dumpCloseBtn.addEventListener('click', closeDumpModal);
+    dumpOverlay.addEventListener('click', (e) => {
+      if (e.target === dumpOverlay) closeDumpModal();
+    });
+
+    // 筛选
+    dumpQueryBtn.addEventListener('click', fetchDump);
+
+    // 全部（清空时间筛选）
+    dumpAllBtn.addEventListener('click', () => {
+      dumpStartInp.value = '';
+      dumpEndInp.value = '';
+      fetchDump();
+    });
+
+    // 回车筛选
+    dumpStartInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchDump(); });
+    dumpEndInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchDump(); });
 
     // ========== 启动应用 ==========
     boot();
