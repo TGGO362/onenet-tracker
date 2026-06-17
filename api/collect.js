@@ -13,8 +13,8 @@ const { parseLocation } = require('../lib/onenet');
 const { wgs84ToGcj02 } = require('../lib/coord');
 const {
   saveLocation,
-  isDuplicate,
   updateLastLocation,
+  saveDebugLog,
 } = require('../lib/kv');
 
 const DEVICE_ID = process.env.ONENET_DEVICE_ID || '862323085449968';
@@ -54,6 +54,9 @@ module.exports = async function handler(req, res) {
 
     console.log(`[Collect] 外层包: msg=${typeof body.msg} nonce=${body.nonce} time=${body.time}`);
 
+    // 🔍 保存原始推送数据用于调试
+    await saveDebugLog(body);
+
     // 2. 提取 msg 字段（OneNET 将实际数据包在 msg 里）
     let data;
     const msgRaw = body.msg || '';
@@ -89,22 +92,9 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // 4. 去重检查
-    const isDup = await isDuplicate(DEVICE_ID, location.lng, location.lat);
-    if (isDup) {
-      const elapsed = Date.now() - startTime;
-      console.log(`[Collect] 重复已跳过 - ${elapsed}ms`);
-      return res.status(200).json({
-        success: true,
-        message: '位置未变化',
-        stored: false,
-        location,
-      });
-    }
-
-    // 5. 写入 Redis
+    // 4. 写入 Redis（始终写入，不去重）
     await saveLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
-    await updateLastLocation(DEVICE_ID, location.lng, location.lat, location.ts);
+    await updateLastLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
 
     const elapsed = Date.now() - startTime;
     console.log(`[Collect] 存储成功 - ${elapsed}ms`);

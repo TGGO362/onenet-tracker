@@ -441,6 +441,28 @@
       });
     }
 
+    // 去除连续同坐标同类型点位，仅保留最后一条（避免重复绘制）
+    function dedupConsecutive(points) {
+      if (!points || points.length <= 1) return points;
+      const result = [];
+      for (let i = 0; i < points.length; i++) {
+        if (i < points.length - 1) {
+          const next = points[i + 1];
+          if (points[i].type === next.type &&
+              points[i].lng.toFixed(6) === next.lng.toFixed(6) &&
+              points[i].lat.toFixed(6) === next.lat.toFixed(6)) {
+            continue; // 下一条同类型同坐标，跳过当前
+          }
+        }
+        result.push(points[i]);
+      }
+      return result;
+    }
+
+    function filterRenderData(points) {
+      return dedupConsecutive(filterGpsPreferred(points));
+    }
+
     // ========== 初始化地图 ==========
     function initMap() {
       return new Promise((resolve, reject) => {
@@ -648,7 +670,7 @@
       const { data, count, lastActive, offline, timeRange } = result;
 
       // GPS 优先过滤
-      const filtered = data ? filterGpsPreferred(data) : [];
+      const filtered = data ? filterRenderData(data) : [];
       const removed = data ? data.length - filtered.length : 0;
       if (removed > 0) console.log(`[App] GPS优先: 过滤 ${removed} 个冗余基站点位`);
 
@@ -692,7 +714,7 @@
 
         const { data, count, lastActive, offline } = result;
 
-        const filtered = data ? filterGpsPreferred(data) : [];
+        const filtered = data ? filterRenderData(data) : [];
         const removed = data ? data.length - filtered.length : 0;
         if (removed > 0) console.log(`[App] GPS优先: 过滤 ${removed} 个冗余基站点位`);
 
@@ -729,7 +751,7 @@
 
         if (!json.success || !json.data) return;
 
-        const filtered = filterGpsPreferred(json.data);
+        const filtered = filterRenderData(json.data);
 
         // 计算数据指纹（最后一条的 ts + 总数）
         const last = filtered.length > 0 ? filtered[filtered.length - 1].ts : '';
