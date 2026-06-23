@@ -10,7 +10,7 @@
  * 响应格式：{ success: true, data: [...], count: N, timeRange: {...} }
  */
 
-const { getLocations, getLastActiveTime } = require('../lib/kv');
+const { getLocations, getLastActiveTime, getTelemetry } = require('../lib/kv');
 
 // 允许的时段选项
 const ALLOWED_HOURS = [1, 3, 6, 9, 12];
@@ -61,8 +61,9 @@ module.exports = async function handler(req, res) {
     // 3. 从 KV 查询数据
     const data = await getLocations(DEVICE_ID, minTs, maxTs);
 
-    // 4. 获取最后活跃时间
+    // 4. 获取最后活跃时间 & 遥测数据
     const lastActive = await getLastActiveTime(DEVICE_ID);
+    const telemetry = await getTelemetry(DEVICE_ID);
 
     const elapsed = Date.now() - startTime;
     console.log(`[Query] 返回 ${data.length} 个点位 - 耗时 ${elapsed}ms`);
@@ -78,6 +79,7 @@ module.exports = async function handler(req, res) {
       },
       lastActive: lastActive || null,
       offline: !lastActive || (Date.now() - new Date(lastActive).getTime() > 30 * 60 * 1000),
+      telemetry: telemetry || null,
     });
   } catch (error) {
     const elapsed = Date.now() - startTime;

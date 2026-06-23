@@ -9,12 +9,13 @@
  * https://open.iot.10086.cn/doc/iot_platform/book/application-develop/push/http_push.html
  */
 
-const { parseLocation } = require('../lib/onenet');
+const { parseLocation, parseTelemetry } = require('../lib/onenet');
 const { wgs84ToGcj02 } = require('../lib/coord');
 const {
   saveLocation,
   updateLastLocation,
   saveDebugLog,
+  saveTelemetry,
 } = require('../lib/kv');
 
 const DEVICE_ID = process.env.ONENET_DEVICE_ID || '862323085449968';
@@ -71,8 +72,9 @@ module.exports = async function handler(req, res) {
 
     console.log(`[Collect] 数据内容: ${JSON.stringify(data).substring(0, 300)}`);
 
-    // 3. 提取定位信息
+    // 3. 提取定位信息 & 遥测数据
     const location = parseLocation(data);
+    const telemetry = parseTelemetry(data);
 
     // 3.5 WGS84 → GCJ02 坐标转换（高德地图使用火星坐标系）
     if (location) {
@@ -95,6 +97,11 @@ module.exports = async function handler(req, res) {
     // 4. 写入 Redis（始终写入，不去重）
     await saveLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
     await updateLastLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
+
+    // 4.5 存储遥测数据
+    if (telemetry) {
+      await saveTelemetry(DEVICE_ID, telemetry);
+    }
 
     const elapsed = Date.now() - startTime;
     console.log(`[Collect] 存储成功 - ${elapsed}ms`);

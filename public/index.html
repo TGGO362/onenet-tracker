@@ -55,6 +55,27 @@
     #gps-count  { color: #0077B6; white-space: nowrap; font-size: 12.5px; font-weight: 500; }
     #bs-count   { color: #D97706; white-space: nowrap; font-size: 12.5px; font-weight: 500; }
 
+    /* ---- 遥测数据行 ---- */
+    #telemetry-row {
+      display: none; gap: 10px; align-items: center;
+      width: 100%; font-size: 12px; font-weight: 520;
+      color: #4B5563;
+    }
+    #telemetry-row.show { display: flex; }
+    .telem-item { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
+    .telem-item .icon { font-size: 13px; line-height: 1; }
+    .batt-good  { color: #1EAA50; }  /* >50% */
+    .batt-warn  { color: #D97706; }  /* 20-50% */
+    .batt-low   { color: #DC2626; }  /* <20% */
+    .sig-bars { display: flex; gap: 1.5px; align-items: flex-end; height: 12px; }
+    .sig-bars span {
+      width: 2.5px; border-radius: 1px; background: #D1D5DB;
+      transition: background 0.3s;
+    }
+    .sig-bars span.on { background: #0077B6; }
+    .gps-fixed { color: #1EAA50; }
+    .gps-nofix { color: #D97706; }
+
     /* ---- 底部时段选择器 ---- */
     #controls {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -304,6 +325,12 @@
     <span id="gps-count"></span>
     <span id="bs-count"></span>
     <span id="point-count"></span>
+    <div id="telemetry-row">
+      <span class="telem-item" id="telem-batt"><span class="icon">🔋</span><span></span></span>
+      <span class="telem-item" id="telem-sig"><span class="icon">📶</span><span></span></span>
+      <span class="telem-item" id="telem-gps"><span class="icon">🛰</span><span></span></span>
+      <span class="telem-item" id="telem-speed" style="display:none;"><span class="icon">🏃</span><span></span></span>
+    </div>
   </div>
 
   <!-- ===== 时段选择器 ===== -->
@@ -583,7 +610,7 @@
 
     // ========== 更新状态栏 ==========
     function updateStatus(data, meta) {
-      const { count, lastActive, offline, timeRange } = meta || {};
+      const { count, lastActive, offline, telemetry } = meta || {};
 
       // 在线状态
       if (offline) {
@@ -609,6 +636,57 @@
 
       // 总点位数量
       pointCountEl.textContent = count > 0 ? `${count} 个点位` : '';
+
+      // 遥测数据
+      renderTelemetry(telemetry);
+    }
+
+    // ========== 渲染遥测数据 ==========
+    const telemRow    = document.getElementById('telemetry-row');
+    const telemBatt   = document.getElementById('telem-batt').querySelector('span:last-child');
+    const telemSig    = document.getElementById('telem-sig').querySelector('span:last-child');
+    const telemGps    = document.getElementById('telem-gps').querySelector('span:last-child');
+    const telemSpeed  = document.getElementById('telem-speed');
+
+    function renderTelemetry(t) {
+      if (!t) { telemRow.classList.remove('show'); return; }
+      telemRow.classList.add('show');
+
+      // 电池
+      const batt = t.battPercent;
+      let battClass = 'batt-low';
+      if (batt >= 50) battClass = 'batt-good';
+      else if (batt >= 20) battClass = 'batt-warn';
+      telemBatt.textContent = (batt >= 0) ? `${batt}%` : '--';
+      telemBatt.parentElement.className = `telem-item ${battClass}`;
+
+      // 信号 (CSQ 0-31 → 0-5 格)
+      const csq = t.csq;
+      const sigBars = csq >= 0 ? Math.min(5, Math.max(0, Math.ceil(csq / 31 * 5))) : 0;
+      let sigHtml = '<span class="sig-bars">';
+      for (let i = 1; i <= 5; i++) {
+        sigHtml += `<span style="height:${6 + i * 2}px" class="${i <= sigBars ? 'on' : ''}"></span>`;
+      }
+      sigHtml += '</span>';
+      telemSig.innerHTML = sigHtml + (csq >= 0 ? ` ${csq}` : ' --');
+      if (t.rsrp && t.rsrp < 0) telemSig.innerHTML += ` <small>${t.rsrp}dBm</small>`;
+
+      // 卫星
+      const sats = t.gpsSatNum;
+      const fix  = t.isFix;
+      const gpsClass = fix === 1 ? 'gps-fixed' : 'gps-nofix';
+      telemGps.textContent = (sats >= 0) ? `${sats}颗` : '--';
+      telemGps.parentElement.className = `telem-item ${gpsClass}`;
+      if (fix === 1) telemGps.textContent += ' ✓';
+
+      // 速度
+      if (t.speed && t.speed > 0) {
+        telemSpeed.style.display = 'flex';
+        telemSpeed.querySelector('span:last-child').textContent =
+          `${Number(t.speed).toFixed(1)} km/h`;
+      } else {
+        telemSpeed.style.display = 'none';
+      }
     }
 
     // ========== 设置激活的时段按钮 ==========
@@ -667,7 +745,7 @@
       const result = await fetchTrack(hours);
       if (!result) return;
 
-      const { data, count, lastActive, offline, timeRange } = result;
+      const { data, count, lastActive, offline, timeRange, telemetry } = result;
 
       // GPS 优先过滤
       const filtered = data ? filterRenderData(data) : [];
@@ -688,7 +766,7 @@
       }
 
       // 更新状态
-      updateStatus(filtered, { count: filtered.length, lastActive, offline, timeRange });
+      updateStatus(filtered, { count: filtered.length, lastActive, offline, timeRange, telemetry });
     }
 
     // ========== 启动 ==========
@@ -712,7 +790,7 @@
           return;
         }
 
-        const { data, count, lastActive, offline } = result;
+        const { data, count, lastActive, offline, telemetry } = result;
 
         const filtered = data ? filterRenderData(data) : [];
         const removed = data ? data.length - filtered.length : 0;
@@ -728,7 +806,7 @@
           }
         }
 
-        updateStatus(filtered, { count: filtered.length, lastActive, offline });
+        updateStatus(filtered, { count: filtered.length, lastActive, offline, telemetry });
 
         // 初始化齿轮位置并启动自动刷新
         applyGearPos();
@@ -773,6 +851,7 @@
           lastActive: json.lastActive,
           offline: json.offline,
           timeRange: json.timeRange,
+          telemetry: json.telemetry,
         });
       } catch (err) {
         // 静默忽略网络错误
