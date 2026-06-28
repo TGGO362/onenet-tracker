@@ -84,34 +84,29 @@ module.exports = async function handler(req, res) {
       location.lat = gcj02.lat;
     }
 
-    if (!location) {
-      const elapsed = Date.now() - startTime;
-      console.log(`[Collect] 无定位数据 - ${elapsed}ms`);
-      return res.status(200).json({
-        success: true,
-        message: '无定位数据',
-        stored: false,
-      });
+    // 4. 写入 Redis（始终写入定位数据，不去重）
+    if (location) {
+      await saveLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
+      await updateLastLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
     }
 
-    // 4. 写入 Redis（始终写入，不去重）
-    await saveLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
-    await updateLastLocation(DEVICE_ID, location.lng, location.lat, location.ts, location.type);
-
-    // 4.5 存储遥测数据
+    // 4.5 存储遥测数据（即使没有定位数据也保存）
     if (telemetry) {
       await saveTelemetry(DEVICE_ID, telemetry);
     }
 
     const elapsed = Date.now() - startTime;
-    console.log(`[Collect] 存储成功 - ${elapsed}ms`);
+    const stored = !!(location || telemetry);
+    const msg = location ? '已存储定位' : telemetry ? '已存储遥测' : '无数据';
+    console.log(`[Collect] ${msg} - ${elapsed}ms`);
     console.log('='.repeat(50));
 
     return res.status(200).json({
       success: true,
-      message: '已存储',
-      stored: true,
-      location,
+      message: msg,
+      stored,
+      location: location || null,
+      telemetry: telemetry || null,
     });
   } catch (error) {
     const elapsed = Date.now() - startTime;
