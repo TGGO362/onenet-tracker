@@ -1,0 +1,170 @@
+-- 原代码开头无 require，但若需要 misc 可注释掉
+-- local misc = require("misc")  -- Air780EP 不需要
+
+sys.taskInit(function()
+    mobile.flymode(0, false)
+    local taskname = "userTask"
+    log.info(taskname, "start")
+    local nid = 1
+    libgnss.debug(true)
+
+    -- ===== 低功耗休眠函数 =====
+    local function TaskSysInSuperLowPower(t)
+        uart.close(1)
+        uart.close(2)
+        uart.close(3)
+        adc.close(0)
+        adc.close(1)
+        adc.close(2)
+        adc.close(3)
+        PerSetLedSta(0)
+        PerSetResPower(0)
+        GpsSetPower(0)
+        while PerGetLedSta() == 1 do
+            log.info("TaskSysInSuperLowPower wait led")
+            sys.wait(500)
+        end
+        gpio.close(30)
+        gpio.close(22)
+        gpio.close(27)
+
+        if t < 100 then t = 100 end
+        t = t * 1000
+        log.info("TaskSysInSuperLowPower", t)
+        mobile.flymode(0, true)
+        pm.power(pm.USB, false)
+        pm.force(pm.HIB)
+        pm.dtimerStart(3, t)
+        sys.wait(5000)
+        pm.reboot()
+    end
+
+    -- ===== 等待网络（最多60秒） =====
+    local netcount = 0
+    while netcount < 60 do
+        if PronetGetNetSta(nid) == 1 then
+            break
+        end
+        netcount = netcount + 1
+        sys.wait(1000)
+    end
+
+    -- ===== 等待GPS定位（最多60秒） =====
+    local gpscount = 0
+    local lngt, latt, speed = nil, nil, nil
+    while gpscount < 60 do
+        if libgnss.isFix() then
+            local tg = libgnss.getRmc(2)
+            lngt = tg.lng
+            latt = tg.lat
+            speed = tg.speed
+            break
+        end
+        gpscount = gpscount + 1
+        sys.wait(1000)
+    end
+
+    -- ===== 开始采集数据 =====
+    local d = {}
+    d.imei = mobile.imei()
+    d.csq = mobile.csq()          -- 通用信号强度（0~31）
+
+    -- 原有自定义采集（Vin 来自 ADC0，保持原样）
+    d.vin = PerGetAdcGatherValByAdcId(0)
+    d.in1 = PerGetDiById(1)
+
+    -- ===== 电池电压与电量百分比（使用ADC1，多次采样） =====
+    local BATT_ADC_CH = 1          -- 根据硬件连接修改（ADC1）
+    local BATT_SAMPLES = 5         -- 采样次数
+    local vbatt_mv = -1
+    local battPercent = -1
+
+    -- 3.7V锂电池典型放电曲线（电压mV -> 百分比）
+    local voltage_map = {
+        {4200, 100}, {4150, 95}, {4100, 90}, {4050, 85}, {4000, 80},
+        {3950, 75},  {3900, 70}, {3850, 65}, {3800, 58}, {3750, 50},
+        {3700, 42},  {3650, 35}, {3600, 28}, {3550, 22}, {3500, 16},
+        {3450, 11},  {3400, 7},  {3300, 3},  {3200, 1},  {3000, 0}
+    }
+
+    local function getBatteryPercent(voltage_mv)
+        if not voltage_mv or voltage_mv <= 0 then return -1 end
+        if voltage_mv >= voltage_map[1][1] then return 100 end
+        if voltage_mv <= voltage_map[#voltage_map][1] then return 0 end
+        for i = 1, #voltage_map - 1 do
+            local v_high, p_high = voltage_map[i][1], voltage_map[i][2]
+            local v_low, p_low = voltage_map[i+1][1], voltage_map[i+1][2]
+            if voltage_mv <= v_high and voltage_mv >= v_low then
+                return math.floor(p_low + (p_high - p_low) * (voltage_mv - v_low) / (v_high - v_low))
+            end
+        end
+        return 0
+    end
+
+    if adc.open(BATT_ADC_CH) then
+        local sum = 0
+        local valid = 0
+        for i = 1, BATT_SAMPLES do
+            local val = adc.read(BATT_ADC_CH)
+            if val and val > 0 then
+                sum = sum + val
+                valid = valid + 1
+            end
+            sys.wait(10)   -- 采样间隔10ms
+        end
+        adc.close(BATT_ADC_CH)
+        if valid > 0 then
+            vbatt_mv = math.floor(sum / valid)
+            battPercent = getBatteryPercent(vbatt_mv)
+        else
+            log.warn(taskname, "ADC read all failed")
+        end
+    else
+        log.warn(taskname, "Failed to open ADC channel", BATT_ADC_CH)
+    end
+
+    d.vbatt = vbatt_mv            -- 电压值（mV）
+    d.battPercent = battPercent   -- 电量百分比（0~100）
+    d.charging = -1               -- Air780EP不支持充电状态检测
+
+    -- ===== GPS定位状态及坐标 =====
+    d.isFix = 0
+    if lngt and latt and speed then
+        d.isFix = 1
+        d.lngt = lngt
+        d.latt = latt
+        d.speed = speed
+    end
+
+    -- ===== 基站定位（保留） =====
+    LbsCheckLbs()
+    d.lbs = {}
+    d.lbs.lbslat, d.lbs.lbslng = GetLbs()
+
+    -- ===== GPS卫星数量 =====
+    local satNum = libgnss.getSatelliteCount()
+    if not satNum then
+        local gsv = libgnss.getGsv()
+        if gsv and type(gsv) == "table" then
+            satNum = #gsv
+        end
+    end
+    d.gpsSatNum = satNum or 0
+
+    -- ===== 基站精细信号指标 =====
+    d.rsrp = mobile.rsrp() or -1   -- 参考信号接收功率 (dBm)
+    d.rsrq = mobile.rsrq() or -1   -- 参考信号接收质量 (dB)
+
+    -- ===== 编码并上传 =====
+    local updata = json.encode(d)
+    log.info(taskname, "updata", updata)
+
+    if updata and PronetGetNetSta(nid) == 1 then
+        PronetSetSendCh(nid, updata)
+    end
+
+    sys.wait(2000)
+    SysNeedInSuperPower()
+    log.info(taskname, "superlowpower")
+    TaskSysInSuperLowPower(120)   -- 休眠120秒后唤醒
+end)
