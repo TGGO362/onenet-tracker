@@ -57,11 +57,10 @@
 
     /* ---- 遥测数据行 ---- */
     #telemetry-row {
-      display: none; gap: 10px; align-items: center;
+      display: flex; gap: 10px; align-items: center;
       width: 100%; font-size: 12px; font-weight: 520;
       color: #4B5563;
     }
-    #telemetry-row.show { display: flex; }
     .telem-item { display: flex; align-items: center; gap: 3px; white-space: nowrap; }
     .telem-item .icon { font-size: 13px; line-height: 1; }
     .batt-good  { color: #1EAA50; }  /* >50% */
@@ -649,43 +648,41 @@
     const telemSpeed  = document.getElementById('telem-speed');
 
     function renderTelemetry(t) {
-      if (!t) { telemRow.classList.remove('show'); return; }
-      telemRow.classList.add('show');
-
       // 电池
-      const batt = t.battPercent;
+      const batt = t ? t.battPercent : undefined;
       let battClass = 'batt-low';
       if (batt >= 50) battClass = 'batt-good';
       else if (batt >= 20) battClass = 'batt-warn';
       telemBatt.textContent = (batt >= 0) ? `${batt}%` : '--';
-      telemBatt.parentElement.className = `telem-item ${battClass}`;
+      telemBatt.parentElement.className = `telem-item ${batt >= 0 ? battClass : ''}`.trim();
 
       // 信号 (CSQ 0-31 → 0-5 格)
-      const csq = t.csq;
+      const csq = t ? t.csq : undefined;
       const sigBars = csq >= 0 ? Math.min(5, Math.max(0, Math.ceil(csq / 31 * 5))) : 0;
       let sigHtml = '<span class="sig-bars">';
       for (let i = 1; i <= 5; i++) {
-        sigHtml += `<span style="height:${6 + i * 2}px" class="${i <= sigBars ? 'on' : ''}"></span>`;
+        sigHtml += `<span style="height:${6 + i * 2}px" class="${i <= sigBars && csq >= 0 ? 'on' : ''}"></span>`;
       }
       sigHtml += '</span>';
       telemSig.innerHTML = sigHtml + (csq >= 0 ? ` ${csq}` : ' --');
-      if (t.rsrp && t.rsrp < 0) telemSig.innerHTML += ` <small>${t.rsrp}dBm</small>`;
+      if (t && t.rsrp && t.rsrp < 0) telemSig.innerHTML += ` <small>${t.rsrp}dBm</small>`;
 
       // 卫星
-      const sats = t.gpsSatNum;
-      const fix  = t.isFix;
+      const sats = t ? t.gpsSatNum : undefined;
+      const fix  = t ? t.isFix : undefined;
       const gpsClass = fix === 1 ? 'gps-fixed' : 'gps-nofix';
       telemGps.textContent = (sats >= 0) ? `${sats}颗` : '--';
-      telemGps.parentElement.className = `telem-item ${gpsClass}`;
-      if (fix === 1) telemGps.textContent += ' ✓';
+      telemGps.parentElement.className = `telem-item ${sats >= 0 ? gpsClass : ''}`.trim();
+      if (fix === 1 && sats >= 0) telemGps.textContent += ' ✓';
 
       // 速度
-      if (t.speed && t.speed > 0) {
+      if (t && t.speed && t.speed > 0) {
         telemSpeed.style.display = 'flex';
         telemSpeed.querySelector('span:last-child').textContent =
           `${Number(t.speed).toFixed(1)} km/h`;
       } else {
-        telemSpeed.style.display = 'none';
+        telemSpeed.style.display = 'flex';
+        telemSpeed.querySelector('span:last-child').textContent = '-- km/h';
       }
     }
 
