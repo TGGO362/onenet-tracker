@@ -155,12 +155,71 @@ sys.taskInit(function()
     d.rsrp = mobile.rsrp() or -1   -- 参考信号接收功率 (dBm)
     d.rsrq = mobile.rsrq() or -1   -- 参考信号接收质量 (dB)
 
-    -- ===== 编码并上传 =====
-    local updata = json.encode(d)
-    log.info(taskname, "updata", updata)
+    -- ===== 编码为 OneNET 物模型属性格式并上报 =====
+    -- 数据来源完全基于之前采集好的 table d
+    local report = {}
+    report.id = "telemetry"
+    report.version = "1.0"
+    report.params = {}
+    -- 直接添加遥测字段（值类型为 number 的属性统一用 {value=N}）
+    if d.vbatt and d.vbatt > 0 then
+        report.params.vbatt = { value = d.vbatt }
+        report.params.battPercent = { value = d.battPercent }
+    end
+    if d.csq then
+        report.params.csq = { value = d.csq }
+    end
+    if d.rsrp and d.rsrp ~= -1 then
+        report.params.rsrp = { value = d.rsrp }
+    end
+    if d.rsrq and d.rsrq ~= -1 then
+        report.params.rsrq = { value = d.rsrq }
+    end
+    if d.gpsSatNum then
+        report.params.gpsSatNum = { value = d.gpsSatNum }
+    end
+    if d.isFix ~= nil then
+        report.params.isFix = { value = d.isFix }
+    end
+    if d.speed and d.speed > 0 then
+        report.params.speed = { value = d.speed }
+    end
+    if d.vin then
+        report.params.vin = { value = d.vin }
+    end
+    if d.in1 ~= nil then
+        report.params.in1 = { value = d.in1 }
+    end
+    -- 附带 GPS 坐标（若有定位）
+    if d.isFix == 1 and d.lngt and d.latt then
+        report.params.location = { value = "GPS_" .. d.lngt .. "_" .. d.latt }
+    end
 
-    if updata and PronetGetNetSta(nid) == 1 then
-        PronetSetSendCh(nid, updata)
+    local reportJson = json.encode(report)
+    log.info(taskname, "report", #reportJson > 300 and (reportJson:sub(1, 300) .. "...") or reportJson)
+
+    -- 尝试 libOneNET（OneNET Studio 标准属性上报）
+    local sent = false
+    local ok, libOneNET = pcall(require, "libOneNET")
+    if ok and libOneNET then
+        if libOneNET.reportProperties then
+            pcall(libOneNET.reportProperties, libOneNET, report)
+            sent = true
+            log.info(taskname, "sent via libOneNET.reportProperties")
+        elseif libOneNET.reportProperty then
+            -- 逐个上报
+            for k, v in pairs(report.params) do
+                pcall(libOneNET.reportProperty, libOneNET, k, v.value)
+            end
+            sent = true
+            log.info(taskname, "sent via libOneNET.reportProperty")
+        end
+    end
+
+    -- 若 libOneNET 不可用，回退到 PronetSetSendCh
+    if not sent and PronetGetNetSta(nid) == 1 then
+        PronetSetSendCh(nid, reportJson)
+        log.info(taskname, "fallback to PronetSetSendCh")
     end
 
     sys.wait(2000)
