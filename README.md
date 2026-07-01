@@ -33,11 +33,11 @@ IoT 设备 → OneNet 平台 → HTTP 推送 → Vercel Serverless → Upstash R
 
 #### OneNet 控制台
 
-设备已在 OneNET Studio 上线，产品 ID: `0HaP28xIqy`，设备名称: `862323085449968`。
+设备已在 OneNET Studio 上线（产品 ID 和设备名称见 OneNET 控制台）。
 
 #### 高德地图控制台
 
-Key=`28b406b0b6cbc476b6e4612f84c6d148`，安全密钥=`9e9bbc23d0614b93975a73c7fbd0f7dd`（已内置到页面）。
+Key 和安全密钥已配置在项目环境变量与页面中。
 
 #### Vercel 账号
 
@@ -69,21 +69,21 @@ vercel --prod   # 部署到生产环境
 |--------|-----|
 | `ONENET_PRODUCT_ID` | `0HaP28xIqy` |
 | `ONENET_DEVICE_ID` | `862323085449968` |
-| `AMAP_KEY` | `28b406b0b6cbc476b6e4612f84c6d148` |
-| `AMAP_SECRET` | `9e9bbc23d0614b93975a73c7fbd0f7dd` |
+| `AMAP_KEY` | `your_amap_key` |
+| `AMAP_SECRET` | `your_amap_secret` |
 
 ```bash
 vercel env add ONENET_PRODUCT_ID
-# 输入 0HaP28xIqy
+# 输入你的 OneNET 产品 ID
 
 vercel env add ONENET_DEVICE_ID
-# 输入 862323085449968
+# 输入你的设备名称
 
 vercel env add AMAP_KEY
-# 输入 28b406b0b6cbc476b6e4612f84c6d148
+# 输入你的高德 Key
 
 vercel env add AMAP_SECRET
-# 输入 9e9bbc23d0614b93975a73c7fbd0f7dd
+# 输入你的高德安全密钥
 ```
 
 全部选 **Production**。配完后重新部署：
@@ -135,7 +135,7 @@ vercel dev
 # 模拟 OneNET 推送（另开终端）
 curl -X POST http://localhost:3000/api/collect \
   -H "Content-Type: application/json" \
-  -d '{"product_id":"0HaP28xIqy","device_name":"862323085449968","data":[{"id":"loc","value":"GPS_117.3834024_31.9418958","time":1718200000000}]}'
+  -d '{"product_id":"你的产品ID","device_name":"你的设备名","data":[{"id":"loc","value":"GPS_117.3834024_31.9418958","time":1718200000000}]}'
 ```
 
 ## 限制说明
